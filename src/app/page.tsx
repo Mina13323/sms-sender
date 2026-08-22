@@ -1,69 +1,182 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { leadFormSchema, LeadFormData } from "@/lib/schema";
+import { Loader2 } from "lucide-react";
+import clsx from "clsx";
 
 export default function Home() {
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+  } = useForm<LeadFormData>({
+    resolver: zodResolver(leadFormSchema),
+  });
+
+  const onSubmit = async (data: LeadFormData) => {
+    setSubmitStatus("loading");
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/send-sms", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.message || "Failed to send message.");
+      }
+
+      setSubmitStatus("success");
+      reset();
+    } catch (error) {
+      setSubmitStatus("error");
+      if (error instanceof Error) {
+        setErrorMessage(error.message || "An unexpected error occurred.");
+      } else {
+        setErrorMessage("An unexpected error occurred.");
+      }
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md space-y-8 bg-white p-8 shadow rounded-lg">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+            Contact Us
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Fill out the form below and we&apos;ll get in touch via SMS.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
+          {submitStatus === "success" && (
+            <div className="rounded-md bg-green-50 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-green-800">Message sent successfully!</h3>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {submitStatus === "error" && (
+            <div className="rounded-md bg-red-50 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">{errorMessage}</h3>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4 rounded-md shadow-sm">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+                Full Name
+              </label>
+              <input
+                id="name"
+                type="text"
+                {...register("name")}
+                className={clsx(
+                  "mt-1 block w-full rounded-md border p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm",
+                  errors.name ? "border-red-300" : "border-gray-300"
+                )}
+                placeholder="John Doe"
+              />
+              {errors.name && <p className="mt-2 text-sm text-red-600">{errors.name.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                Phone Number
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                {...register("phone")}
+                className={clsx(
+                  "mt-1 block w-full rounded-md border p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm",
+                  errors.phone ? "border-red-300" : "border-gray-300"
+                )}
+                placeholder="+1234567890"
+              />
+              {errors.phone && <p className="mt-2 text-sm text-red-600">{errors.phone.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="message" className="block text-sm font-medium text-gray-700">
+                Message
+              </label>
+              <textarea
+                id="message"
+                rows={4}
+                {...register("message")}
+                className={clsx(
+                  "mt-1 block w-full rounded-md border p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm",
+                  errors.message ? "border-red-300" : "border-gray-300"
+                )}
+                placeholder="How can we help you?"
+              />
+              {errors.message && <p className="mt-2 text-sm text-red-600">{errors.message.message}</p>}
+            </div>
+
+            <div className="flex items-start">
+              <div className="flex h-5 items-center">
+                <input
+                  id="smsConsent"
+                  type="checkbox"
+                  {...register("smsConsent")}
+                  className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="ml-3 text-sm">
+                <label htmlFor="smsConsent" className="font-medium text-gray-700">
+                  I consent to receive SMS messages
+                </label>
+                <p className="text-gray-500">
+                  By checking this box, you agree to receive text messages from us.
+                </p>
+                {errors.smsConsent && (
+                  <p className="mt-2 text-sm text-red-600">{errors.smsConsent.message}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <button
+              type="submit"
+              disabled={submitStatus === "loading"}
+              className="group relative flex w-full justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-indigo-400"
+            >
+              {submitStatus === "loading" ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                "Send Message"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
