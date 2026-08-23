@@ -1,19 +1,26 @@
-import { SmsProvider, SendSmsInput, SendSmsResult } from "../sms-provider";
+import {
+  ProviderHealthResult,
+  SendSmsInput,
+  SendSmsResult,
+  SmsProvider,
+} from "../sms-provider";
 
+/**
+ * Development-only provider that simulates a successful submission.
+ * Never logs recipients or message bodies.
+ */
 export class MockProvider implements SmsProvider {
-  async sendMessage(_input: SendSmsInput): Promise<SendSmsResult> {
-    // We explicitly avoid logging the exact 'to' and 'body' to prevent PII leakage.
-    console.log("MockProvider: Attempting to send SMS message.");
-    
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    
-    console.log("MockProvider: SMS sent successfully.");
-
+  async sendSms(_input: SendSmsInput): Promise<SendSmsResult> {
+    void _input;
+    await new Promise((resolve) => setTimeout(resolve, 150));
     return {
       success: true,
-      providerMessageId: `mock-${Date.now()}`,
-      status: "sent"
+      providerMessageId: `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      status: "submitted",
     };
+  }
+
+  async validateConfiguration(): Promise<ProviderHealthResult> {
+    return { ok: true, message: "Mock provider is always available (development only)." };
   }
 }

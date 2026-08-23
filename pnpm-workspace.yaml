@@ -1,5 +1,7 @@
 allowBuilds:
-  '@prisma/engines': set this to true or false
-  prisma: set this to true or false
+  esbuild: true
+  '@embedded-postgres/linux-x64': true
+  '@prisma/engines': true
+  prisma: true
   sharp: false
   unrs-resolver: false

@@ -1,49 +1,127 @@
-import { SmsProvider, SendSmsInput, SendSmsResult } from "../sms-provider";
+import {
+  ProviderHealthResult,
+  ProviderRuntimeConfig,
+  SendSmsInput,
+  SendSmsResult,
+  SmsMessageStatus,
+  SmsProvider,
+} from "../sms-provider";
 
+const DEFAULT_BASE_URL = "https://api.twilio.com";
+
+/** Maps Twilio message statuses to our provider-agnostic statuses. */
+export function mapTwilioStatus(status: string | undefined): SmsMessageStatus {
+  switch ((status || "").toLowerCase()) {
+    case "delivered":
+      return "delivered";
+    case "sent":
+    case "sending":
+      return "sent";
+    case "undelivered":
+      return "undelivered";
+    case "failed":
+    case "canceled":
+      return "failed";
+    case "queued":
+    case "accepted":
+    case "scheduled":
+    default:
+      return "submitted";
+  }
+}
+
+/**
+ * Twilio Programmable Messaging adapter (REST API, zero extra dependencies).
+ * Credentials come decrypted from the database — never from the client.
+ */
 export class TwilioProvider implements SmsProvider {
-  async sendMessage(input: SendSmsInput): Promise<SendSmsResult> {
-    const accountSid = process.env.SMS_API_KEY; // Actually we expect TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN usually, but following the generic structure:
-    const from = process.env.SMS_FROM;
-    
-    // For twilio, we can use the basic auth with SMS_API_KEY as the token if we assume SMS_PROVIDER_USER is account sid
-    // We'll stick to a standard generic fetch to the Twilio REST API for zero-dependency implementation.
-    const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-    const twilioAuthToken = process.env.SMS_API_KEY; // Using API_KEY as the auth token
+  private readonly accountSid: string;
+  private readonly authToken: string;
+  private readonly from?: string;
+  private readonly baseUrl: string;
 
-    if (!twilioSid || !twilioAuthToken || !from) {
-      console.error("Missing Twilio credentials in environment variables.");
-      return { success: false, error: "Configuration error" };
+  constructor(config: ProviderRuntimeConfig) {
+    this.accountSid = config.accountSid ?? "";
+    this.authToken = config.apiSecret ?? "";
+    this.from = config.senderId;
+    this.baseUrl = (config.apiBaseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  }
+
+  private authHeader(): string {
+    return "Basic " + Buffer.from(`${this.accountSid}:${this.authToken}`).toString("base64");
+  }
+
+  private configured(): boolean {
+    return Boolean(this.accountSid && this.authToken);
+  }
+
+  async sendSms(input: SendSmsInput): Promise<SendSmsResult> {
+    const from = input.from || this.from;
+    if (!this.configured() || !from) {
+      return { success: false, status: "failed", errorCode: "provider_not_configured" };
     }
 
     try {
-      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Authorization": "Basic " + Buffer.from(`${twilioSid}:${twilioAuthToken}`).toString("base64")
+      const response = await fetch(
+        `${this.baseUrl}/2010-04-01/Accounts/${encodeURIComponent(this.accountSid)}/Messages.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: this.authHeader(),
+          },
+          body: new URLSearchParams({ To: input.to, From: from, Body: input.body }).toString(),
         },
-        body: new URLSearchParams({
-          To: input.to,
-          From: from,
-          Body: input.body
-        }).toString()
-      });
+      );
 
-      const data = await response.json();
+      const data = (await response.json().catch(() => ({}))) as {
+        sid?: string;
+        status?: string;
+        code?: number;
+      };
 
       if (!response.ok) {
-        console.error("Twilio API error:", data.message || "Unknown error");
-        return { success: false, error: "Provider error" };
+        // Log ONLY the numeric Twilio error code — Twilio error messages can
+        // contain the destination number (PII), so they are never logged.
+        console.error(
+          `TwilioProvider: send rejected (http ${response.status}, code ${data.code ?? "n/a"})`,
+        );
+        return {
+          success: false,
+          status: "failed",
+          errorCode: data.code ? `twilio_${data.code}` : `http_${response.status}`,
+        };
       }
 
       return {
         success: true,
         providerMessageId: data.sid,
-        status: data.status
+        status: mapTwilioStatus(data.status),
       };
-    } catch (error) {
-      console.error("Exception during Twilio API call.");
-      return { success: false, error: "Network error" };
+    } catch {
+      console.error("TwilioProvider: network error during send.");
+      return { success: false, status: "failed", errorCode: "network_error" };
+    }
+  }
+
+  async validateConfiguration(): Promise<ProviderHealthResult> {
+    if (!this.configured()) {
+      return { ok: false, message: "Missing Account SID or Auth Token." };
+    }
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/2010-04-01/Accounts/${encodeURIComponent(this.accountSid)}.json`,
+        { headers: { Authorization: this.authHeader() } },
+      );
+      if (response.ok) {
+        return { ok: true, message: "Connected to Twilio successfully." };
+      }
+      if (response.status === 401) {
+        return { ok: false, message: "Authentication failed. Check Account SID / Auth Token." };
+      }
+      return { ok: false, message: `Twilio returned HTTP ${response.status}.` };
+    } catch {
+      return { ok: false, message: "Could not reach the Twilio API." };
     }
   }
 }

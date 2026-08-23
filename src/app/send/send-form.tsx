@@ -1,0 +1,189 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { countSegments } from "@/lib/segments";
+import { parseRecipients } from "@/lib/phone";
+import { Alert, Button, Card, Label, Select, Textarea } from "@/components/ui";
+
+interface RouteOption {
+  id: string;
+  country: string;
+  carrier: string;
+  pricePerSegment: number;
+  currency: string;
+}
+
+interface PerRecipientResult {
+  to: string;
+  success: boolean;
+  status: string;
+}
+
+export function SendForm() {
+  const [recipients, setRecipients] = useState("");
+  const [message, setMessage] = useState("");
+  const [routeId, setRouteId] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [routes, setRoutes] = useState<RouteOption[]>([]);
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [feedback, setFeedback] = useState("");
+  const [results, setResults] = useState<PerRecipientResult[]>([]);
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    fetch("/api/routes")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.success) setRoutes(data.routes);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const seg = useMemo(() => countSegments(message), [message]);
+  const parsed = useMemo(() => parseRecipients(recipients), [recipients]);
+  const selectedRoute = routes.find((r) => r.id === routeId);
+  const estimatedCost =
+    selectedRoute && parsed.valid.length > 0 && seg.segments > 0
+      ? (selectedRoute.pricePerSegment * seg.segments * parsed.valid.length).toFixed(4)
+      : null;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inFlight.current) return; // repeated-click protection
+    inFlight.current = true;
+    setStatus("loading");
+    setFeedback("");
+    setResults([]);
+
+    try {
+      const res = await fetch("/api/sms/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipients,
+          message,
+          routeId: routeId || null,
+          consent,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatus("success");
+        setFeedback(data.message || "SMS submitted successfully.");
+        setResults(data.results ?? []);
+        setMessage("");
+        setRecipients("");
+        setConsent(false);
+      } else {
+        setStatus("error");
+        setFeedback(data.message || "Unable to send SMS. Please try again.");
+        setResults(data.results ?? []);
+      }
+    } catch {
+      setStatus("error");
+      setFeedback("Unable to send SMS. Please try again.");
+    } finally {
+      inFlight.current = false;
+    }
+  };
+
+  return (
+    <Card>
+      <form onSubmit={submit} className="space-y-5">
+        {status === "success" && <Alert tone="success">{feedback}</Alert>}
+        {status === "error" && <Alert tone="error">{feedback}</Alert>}
+
+        {results.length > 1 && (
+          <div className="rounded-md border border-gray-200 text-sm">
+            {results.map((r) => (
+              <div
+                key={r.to}
+                className="flex items-center justify-between border-b border-gray-100 px-3 py-1.5 last:border-b-0"
+              >
+                <span className="font-mono text-xs">{r.to}</span>
+                <span className={r.success ? "text-green-600" : "text-red-600"}>
+                  {r.success ? r.status : "failed"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <Label htmlFor="recipients">Recipient phone number(s)</Label>
+          <Textarea
+            id="recipients"
+            rows={2}
+            required
+            value={recipients}
+            onChange={(e) => setRecipients(e.target.value)}
+            placeholder={"+221771234567\n+974312345678"}
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            International format (+countrycode…), one per line or comma separated.
+            {parsed.valid.length > 0 && ` ${parsed.valid.length} valid recipient(s).`}
+            {parsed.invalid.length > 0 && (
+              <span className="text-red-600"> {parsed.invalid.length} invalid entr(y/ies).</span>
+            )}
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="message">Message</Label>
+          <Textarea
+            id="message"
+            rows={4}
+            required
+            maxLength={1600}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Type your message…"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            {message.length} characters · {seg.encoding} · Estimated segments: {seg.segments}
+          </p>
+        </div>
+
+        {routes.length > 0 && (
+          <div>
+            <Label htmlFor="route">Route (optional)</Label>
+            <Select id="route" value={routeId} onChange={(e) => setRouteId(e.target.value)}>
+              <option value="">Automatic (default provider)</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.country} / {r.carrier} — {r.pricePerSegment} {r.currency}/segment
+                </option>
+              ))}
+            </Select>
+            {estimatedCost && (
+              <p className="mt-1 text-xs text-gray-500">
+                Estimated cost: {estimatedCost} {selectedRoute?.currency}
+              </p>
+            )}
+          </div>
+        )}
+
+        <label className="flex items-start gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            required
+          />
+          I confirm the recipients have consented to receive this message.
+        </label>
+
+        <Button
+          type="submit"
+          disabled={status === "loading" || parsed.valid.length === 0 || !message.trim()}
+          className="w-full"
+        >
+          {status === "loading" && <Loader2 className="h-4 w-4 animate-spin" />}
+          {status === "loading" ? "Sending…" : "Send"}
+        </Button>
+      </form>
+    </Card>
+  );
+}

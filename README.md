@@ -1,61 +1,125 @@
-# Systemic Form Assistant
+# SMS Management & Sending Platform
 
-An operator-assisted form automation Tampermonkey userscript for quickly processing contact lists.
+A focused, production-ready SMS panel:
 
-## Features
-- Import contacts locally from a CSV file.
-- Auto-fill form fields (Name, Phone, Message) without automatic submission.
-- Navigate through contacts (Next, Previous, Skip).
-- Mark contacts as Done after manual submission.
-- Tracks your progress locally, surviving page refreshes.
-- Strict Privacy: Zero external data uploads.
+- **Users** log in and get a simple **Send SMS** page.
+- A **Super Admin** manages the whole system: users, SMS providers, routes/pricing and settings.
+- Multi-provider architecture — Twilio is the first real adapter, more can be added without rewriting the app.
 
-## Installation
+## Architecture
 
-1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension for your browser (Chrome, Firefox, Edge, Safari).
-2. Open the extension dashboard.
-3. Create a new script.
-4. Copy and paste the contents of `systemic-form-assistant.user.js` into the editor.
-5. Save the script (Ctrl+S or Cmd+S).
+- **Next.js 16 (App Router) + TypeScript + Tailwind CSS 4**
+- **PostgreSQL** (Supabase in production, embedded local Postgres for development) accessed via `pg` — schema in [`db/schema.sql`](db/schema.sql)
+- **Auth**: email + password (bcrypt), JWT session cookie (`jose`, HTTP-only, SameSite=Lax), roles `SUPER_ADMIN` / `USER`, server-side authorization on every API route, optimistic redirects in [`src/proxy.ts`](src/proxy.ts)
+- **Provider abstraction** ([`src/services/sms/`](src/services/sms)):
 
-## Usage
-
-1. Go to the target form: `https://link.systemic-digital.net/widget/form/*`
-2. You will see a floating "CONTACT ASSISTANT" panel on the top right.
-3. Click **IMPORT CSV** and select your contact list.
-4. Use the **FILL** button (or press `F`) to populate the current contact's information into the form.
-5. Review the filled data, ensure consent if required, and **MANUALLY CLICK SEND** on the website's form.
-6. After a successful send, click **MARK DONE**.
-7. The assistant will advance to the next contact.
-
-## Keyboard Shortcuts
-Shortcuts are disabled when typing in an input field.
-- `F` - Fill current contact
-- `N` - Next contact
-- `P` - Previous contact
-- `S` - Skip contact
-- `R` - Reset position to the first contact
-
-## CSV Format
-
-The CSV must contain the following columns (headers are optional but recommended):
-```csv
-name,phone,message
-John Smith,+1234567890,"Hello, please contact me."
-Jane Doe,+0987654321,"I need support."
 ```
-If only the phone number is provided:
-```csv
-+1234567890
-+0987654321
+SMS send API ──► send-service ──► SmsProvider interface
+                                     ├─ TwilioProvider (real)
+                                     └─ MockProvider   (development only)
 ```
-The assistant will use a default name (e.g., "Test Contact") and default message.
 
-## Privacy & Security
-- **No Automatic Submission**: The script is strictly designed to aid an operator. It will **never** click the "Send" or "Submit" button automatically.
-- **Local Storage Only**: Your contact list is stored within Tampermonkey's local storage (`GM_setValue`). It is never uploaded to any analytics, telemetry, or third-party service.
-- **Console Logging**: PII (Personally Identifiable Information) is intentionally excluded from developer console logs.
+- **Credential security**: provider secrets are AES-256-GCM encrypted at rest (`APP_ENCRYPTION_KEY`) and never returned by any API (only masked values / boolean flags).
+- **Privacy by design**: no leads/contacts/message tables exist. Recipient numbers and message bodies are never persisted and never logged. Only aggregate usage counters (message/segment/failure counts per user per day) are stored.
+- **Rate limiting**: database-backed fixed windows (serverless-safe) for login attempts and SMS sending, plus a duplicate-send guard (HMAC fingerprint, no PII).
 
-## Project Structure
-- `systemic-form-assistant.user.js`: The userscript file.
-- `README.md`: Instructions and documentation.
+### Pages
+
+| Route | Access | Purpose |
+|---|---|---|
+| `/login` | public | Sign in |
+| `/send` | authenticated | Send SMS (recipients, message, char/segment count, optional route) |
+| `/admin` | super admin | Dashboard (users/providers/routes/usage) |
+| `/admin/users` | super admin | Create, enable/disable, reset passwords, roles |
+| `/admin/providers` | super admin | Add/configure providers, test connection, enable/disable, default |
+| `/admin/routes` | super admin | Country/carrier/provider/sender/price-per-segment routes |
+| `/admin/settings` | super admin | Rate limit + max recipients |
+
+### API
+
+`POST /api/auth/login|logout`, `GET /api/auth/me`, `POST /api/sms/send`, `GET /api/routes`,
+`GET|POST /api/admin/users`, `PATCH /api/admin/users/:id`,
+`GET|POST /api/admin/providers`, `PATCH|DELETE /api/admin/providers/:id`, `POST /api/admin/providers/:id/test`,
+`GET|POST /api/admin/routes`, `PATCH|DELETE /api/admin/routes/:id`,
+`GET|PATCH /api/admin/settings`, `GET /api/admin/stats`.
+
+## Setup
+
+### 1. Environment
+
+Copy `.env.example` to `.env` and fill in:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (Supabase in production) |
+| `AUTH_SECRET` | Session signing secret — `openssl rand -base64 32` |
+| `APP_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption — `openssl rand -base64 32` |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Initial super admin (seed script only) |
+
+### 2. Database
+
+```bash
+pnpm install
+
+# local development database (embedded PostgreSQL on port 5433):
+pnpm db:local          # keep running in a separate terminal
+# DATABASE_URL=postgresql://sms:sms@localhost:5433/sms_panel
+
+pnpm db:migrate        # applies db/schema.sql (idempotent)
+pnpm db:seed           # creates the super admin (+ mock provider)
+# SEED_EXAMPLE_ROUTES=1 pnpm db:seed   # optionally seed example routes
+```
+
+For **Supabase**: create a project, take the connection string from
+*Project Settings → Database* (use the **pooler** URI on serverless), set it as
+`DATABASE_URL` and run `pnpm db:migrate && pnpm db:seed` once.
+
+### 3. Run
+
+```bash
+pnpm dev        # http://localhost:3000
+```
+
+Log in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+
+## Provider setup (Twilio)
+
+1. Log in as super admin → **Admin → Providers → Add provider**.
+2. Type: **Twilio**. Enter Account SID, Auth Token and the `From` number (E.164) or approved Sender ID.
+3. Mark it **Active** and (usually) **Default**, save, then click **Test connection** → should show `CONNECTED`.
+4. Disable or delete the Mock provider in production. The system never falls back from a failed real provider to mock.
+
+Credentials are encrypted before storage and are never sent back to the browser.
+
+## Adding another provider
+
+Configuring more instances of a *supported* type is pure Admin-UI work. Supporting a **new provider protocol** requires one small adapter:
+
+1. Implement `SmsProvider` (`sendSms`, `validateConfiguration`) in `src/services/sms/providers/<name>-provider.ts`.
+2. Register it in `createProviderAdapter` (`src/services/sms/factory.ts`).
+3. Add its form metadata to `PROVIDER_TYPES` (`src/services/sms/sms-provider.ts`) and the type to the `providers.type` CHECK constraint in `db/schema.sql`.
+
+Nothing else in the app changes.
+
+## Routes & pricing
+
+**Admin → Routes & Pricing** manages `Country / Carrier / Provider / Sender / Price per segment / Priority / Status`. Prices are fully configurable per route — nothing is hardcoded. Users can optionally pick a route on the send page (with a cost estimate), otherwise the default active provider is used.
+
+## Testing
+
+```bash
+pnpm test        # unit tests (segments, phone parsing, crypto, status mapping)
+pnpm typecheck
+pnpm lint
+pnpm build
+```
+
+Before going live, perform one **real SMS test**: configure the real provider, log in, send a short message to a single authorized test number and confirm it arrives.
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) (Vercel + Supabase).
+
+## Repository extras
+
+- [`systemic-form-assistant.user.js`](systemic-form-assistant.user.js) — a standalone Tampermonkey operator-assist userscript kept from an earlier phase of the project (unrelated to the panel runtime).
