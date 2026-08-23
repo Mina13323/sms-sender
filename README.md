@@ -15,9 +15,11 @@ A focused, production-ready SMS panel:
 
 ```
 SMS send API ──► send-service ──► SmsProvider interface
-                                     ├─ TwilioProvider (real)
-                                     └─ MockProvider   (development only)
+                                     ├─ GenericHttpProvider (any HTTP/REST SMS API — fully admin-configured)
+                                     ├─ TwilioProvider      (built-in)
+                                     └─ MockProvider        (development only)
 ```
+
 
 - **Credential security**: provider secrets are AES-256-GCM encrypted at rest (`APP_ENCRYPTION_KEY`) and never returned by any API (only masked values / boolean flags).
 - **Privacy by design**: no leads/contacts/message tables exist. Recipient numbers and message bodies are never persisted and never logged. Only aggregate usage counters (message/segment/failure counts per user per day) are stored.
@@ -93,13 +95,23 @@ Credentials are encrypted before storage and are never sent back to the browser.
 
 ## Adding another provider
 
-Configuring more instances of a *supported* type is pure Admin-UI work. Supporting a **new provider protocol** requires one small adapter:
+**Most providers need zero code changes.** In **Admin → Providers → Add provider** choose **Generic HTTP / REST** and configure:
+
+- Endpoint URL + HTTP method (POST/GET)
+- Authentication: None / Bearer / API key (header or query) / Basic / custom header
+- Request body template with whitelisted variables — field names are fully provider-specific:
+  `{{to}}`, `{{message}}`, `{{from}}`, `{{sender}}`, `{{country}}`, `{{apiKey}}`, `{{apiSecret}}`, `{{username}}`, `{{password}}`
+- Custom headers and query parameters (templates allowed)
+- Response mapping via JSONPath-lite (`$.data.id`, `$.status`), success status codes, timeout
+
+Templates are data-only substitution (no code execution). All generic requests run server-side through an SSRF guard: HTTPS required in production, localhost/private/link-local/metadata addresses blocked (including DNS-resolved IPs), redirects refused, timeouts and response size caps enforced. `SMS_HTTP_ALLOW_LOCAL=1` (dev only) permits loopback targets for local stub testing.
+
+Only a provider with a fundamentally non-HTTP protocol needs a coded adapter:
 
 1. Implement `SmsProvider` (`sendSms`, `validateConfiguration`) in `src/services/sms/providers/<name>-provider.ts`.
 2. Register it in `createProviderAdapter` (`src/services/sms/factory.ts`).
 3. Add its form metadata to `PROVIDER_TYPES` (`src/services/sms/sms-provider.ts`) and the type to the `providers.type` CHECK constraint in `db/schema.sql`.
 
-Nothing else in the app changes.
 
 ## Routes & pricing
 

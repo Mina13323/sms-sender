@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSameOrigin, requireAdmin } from "@/lib/auth";
 import { providerUpdateSchema } from "@/lib/schema";
 import { deleteProvider, getProvider, toPublic, updateProvider } from "@/lib/data/providers";
+import { validateOutboundUrl } from "@/lib/ssrf";
+
 
 export const runtime = "nodejs";
 
@@ -22,7 +24,24 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     );
   }
 
+  const target = await getProvider(id);
+  if (!target) {
+    return NextResponse.json({ success: false, message: "Provider not found." }, { status: 404 });
+  }
+
+  // SSRF policy re-checked whenever the endpoint changes on an HTTP provider.
+  if (target.type === "HTTP" && parsed.data.apiBaseUrl) {
+    const urlCheck = validateOutboundUrl(parsed.data.apiBaseUrl);
+    if (!urlCheck.ok) {
+      return NextResponse.json(
+        { success: false, message: `Endpoint rejected: ${urlCheck.reason}` },
+        { status: 400 },
+      );
+    }
+  }
+
   const updated = await updateProvider(id, parsed.data);
+
   if (!updated) {
     return NextResponse.json({ success: false, message: "Provider not found." }, { status: 404 });
   }

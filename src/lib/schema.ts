@@ -46,18 +46,48 @@ export const userUpdateSchema = z.object({
 
 // ---------- providers (admin) ----------
 
+const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+
+export const httpConfigSchema = z.object({
+  method: z.enum(["POST", "GET"]).default("POST"),
+  authType: z
+    .enum(["NONE", "API_KEY_HEADER", "API_KEY_QUERY", "BEARER", "BASIC", "CUSTOM_HEADER"])
+    .default("NONE"),
+  authName: z.string().trim().max(64).optional().or(z.literal("")).transform((v) => v || undefined),
+  authValueTemplate: z.string().trim().max(300).optional().or(z.literal("")).transform((v) => v || undefined),
+  contentType: z
+    .enum(["application/json", "application/x-www-form-urlencoded"])
+    .default("application/json"),
+  headers: z
+    .record(z.string().regex(HEADER_NAME, "Invalid header name"), z.string().max(500))
+    .refine((h) => Object.keys(h).length <= 20, "Too many headers")
+    .optional(),
+  queryParams: z
+    .record(z.string().min(1).max(64), z.string().max(500))
+    .refine((q) => Object.keys(q).length <= 20, "Too many query parameters")
+    .optional(),
+  bodyTemplate: z.string().max(5000).optional().or(z.literal("")).transform((v) => v || undefined),
+  timeoutMs: z.number().int().min(1000).max(60000).default(15000),
+  successCodes: z.array(z.number().int().min(100).max(599)).max(10).default([200, 201, 202]),
+  messageIdPath: z.string().trim().max(200).optional().or(z.literal("")).transform((v) => v || undefined),
+  statusPath: z.string().trim().max(200).optional().or(z.literal("")).transform((v) => v || undefined),
+});
+export type HttpConfigData = z.infer<typeof httpConfigSchema>;
+
 export const providerCreateSchema = z.object({
   name: z.string().trim().min(2).max(100),
-  type: z.enum(["TWILIO", "MOCK"]),
+  type: z.enum(["TWILIO", "MOCK", "HTTP"]),
   isActive: z.boolean().default(true),
   isDefault: z.boolean().default(false),
   priority: z.number().int().min(1).max(1000).default(100),
-  apiBaseUrl: z.string().trim().url().max(300).optional().or(z.literal("")).transform((v) => v || undefined),
+  apiBaseUrl: z.string().trim().url().max(500).optional().or(z.literal("")).transform((v) => v || undefined),
   accountSid: z.string().trim().max(200).optional(),
-  apiKey: z.string().trim().max(200).optional(),
-  apiSecret: z.string().trim().max(200).optional(),
-  senderId: z.string().trim().max(50).optional(),
+  apiKey: z.string().trim().max(500).optional(),
+  apiSecret: z.string().trim().max(500).optional(),
+  senderId: z.string().trim().max(50).nullable().optional(),
+  config: httpConfigSchema.optional(),
 });
+
 
 export const providerUpdateSchema = providerCreateSchema.partial().omit({ type: true });
 

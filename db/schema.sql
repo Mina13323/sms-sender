@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS providers (
   id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name            TEXT NOT NULL,
-  type            TEXT NOT NULL CHECK (type IN ('TWILIO', 'MOCK')),
+  type            TEXT NOT NULL CHECK (type IN ('TWILIO', 'MOCK', 'HTTP')),
+
   is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   is_default      BOOLEAN NOT NULL DEFAULT FALSE,
   priority        INTEGER NOT NULL DEFAULT 100,

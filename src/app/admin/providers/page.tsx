@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Input, Label, Select } from "@/components/ui";
+import { Alert, Badge, Button, Card, Input, Label, Select, Textarea } from "@/components/ui";
 
 interface FieldInfo {
   key: "accountSid" | "apiKey" | "apiSecret" | "senderId" | "apiBaseUrl";
@@ -17,6 +17,21 @@ interface ProviderTypeInfo {
   fields: FieldInfo[];
 }
 
+interface HttpConfig {
+  method: "POST" | "GET";
+  authType: string;
+  authName?: string;
+  authValueTemplate?: string;
+  contentType: string;
+  headers?: Record<string, string>;
+  queryParams?: Record<string, string>;
+  bodyTemplate?: string;
+  timeoutMs?: number;
+  successCodes?: number[];
+  messageIdPath?: string;
+  statusPath?: string;
+}
+
 interface Provider {
   id: string;
   name: string;
@@ -27,7 +42,263 @@ interface Provider {
   apiBaseUrl: string | null;
   senderId: string | null;
   accountSidMasked: string | null;
+  hasApiKey: boolean;
   hasApiSecret: boolean;
+  config: HttpConfig | null;
+}
+
+const AUTH_TYPES = [
+  { id: "NONE", label: "None" },
+  { id: "BEARER", label: "Bearer token ({{apiKey}})" },
+  { id: "API_KEY_HEADER", label: "API key in header" },
+  { id: "API_KEY_QUERY", label: "API key in query parameter" },
+  { id: "BASIC", label: "Basic auth (username + password)" },
+  { id: "CUSTOM_HEADER", label: "Custom header" },
+];
+
+const DEFAULT_BODY_TEMPLATE = `{
+  "to": "{{to}}",
+  "message": "{{message}}",
+  "from": "{{from}}"
+}`;
+
+function mapToLines(map?: Record<string, string>, sep = ": "): string {
+  if (!map) return "";
+  return Object.entries(map)
+    .map(([k, v]) => `${k}${sep}${v}`)
+    .join("\n");
+}
+
+function linesToMap(text: string, sep: ":" | "="): Record<string, string> | undefined {
+  const map: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(sep);
+    if (idx <= 0) continue;
+    map[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+  }
+  return Object.keys(map).length ? map : undefined;
+}
+
+/** Collects the Generic HTTP config out of the submitted form. */
+function collectHttpConfig(form: FormData): HttpConfig {
+  const successCodes = String(form.get("http_successCodes") ?? "")
+    .split(/[,\s]+/)
+    .map((s) => Number(s))
+    .filter((n) => Number.isInteger(n) && n >= 100 && n <= 599);
+  return {
+    method: form.get("http_method") === "GET" ? "GET" : "POST",
+    authType: String(form.get("http_authType") || "NONE"),
+    authName: String(form.get("http_authName") || "") || undefined,
+    authValueTemplate: String(form.get("http_authValueTemplate") || "") || undefined,
+    contentType:
+      form.get("http_contentType") === "application/x-www-form-urlencoded"
+        ? "application/x-www-form-urlencoded"
+        : "application/json",
+    headers: linesToMap(String(form.get("http_headers") || ""), ":"),
+    queryParams: linesToMap(String(form.get("http_queryParams") || ""), "="),
+    bodyTemplate: String(form.get("http_bodyTemplate") || "") || undefined,
+    timeoutMs: Number(form.get("http_timeoutMs")) || 15000,
+    successCodes: successCodes.length ? successCodes : [200, 201, 202],
+    messageIdPath: String(form.get("http_messageIdPath") || "") || undefined,
+    statusPath: String(form.get("http_statusPath") || "") || undefined,
+  };
+}
+
+/** Conditional Generic HTTP configuration sections. */
+function HttpConfigForm({ provider }: { provider?: Provider }) {
+  const cfg = provider?.config ?? undefined;
+  const [authType, setAuthType] = useState(cfg?.authType ?? "NONE");
+  const [method, setMethod] = useState(cfg?.method ?? "POST");
+
+  const needsAuthName = ["API_KEY_HEADER", "API_KEY_QUERY", "CUSTOM_HEADER"].includes(authType);
+  const needsApiKey = ["BEARER", "API_KEY_HEADER", "API_KEY_QUERY", "CUSTOM_HEADER"].includes(authType);
+  const needsBasic = authType === "BASIC";
+
+  return (
+    <>
+      <fieldset className="sm:col-span-2 grid grid-cols-1 gap-4 rounded-md border border-gray-200 p-4 sm:grid-cols-2">
+        <legend className="px-1 text-xs font-semibold uppercase text-gray-500">Request</legend>
+        <div>
+          <Label htmlFor="h-endpoint">Endpoint URL</Label>
+          <Input
+            id="h-endpoint"
+            name="apiBaseUrl"
+            required={!provider}
+            defaultValue={provider?.apiBaseUrl ?? ""}
+            placeholder="https://api.example.com/v1/messages"
+          />
+        </div>
+        <div>
+          <Label htmlFor="h-method">HTTP method</Label>
+          <Select
+            id="h-method"
+            name="http_method"
+            value={method}
+            onChange={(e) => setMethod(e.target.value as "POST" | "GET")}
+          >
+            <option value="POST">POST</option>
+            <option value="GET">GET</option>
+          </Select>
+        </div>
+        {method === "POST" && (
+          <>
+            <div>
+              <Label htmlFor="h-contentType">Content type</Label>
+              <Select id="h-contentType" name="http_contentType" defaultValue={cfg?.contentType ?? "application/json"}>
+                <option value="application/json">application/json</option>
+                <option value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</option>
+              </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="h-body">Request body template</Label>
+              <Textarea
+                id="h-body"
+                name="http_bodyTemplate"
+                rows={5}
+                className="font-mono text-xs"
+                defaultValue={cfg?.bodyTemplate ?? DEFAULT_BODY_TEMPLATE}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                {"Variables: {{to}} {{message}} {{from}} {{sender}} {{country}} {{apiKey}} {{apiSecret}} {{username}} {{password}}"}
+              </p>
+            </div>
+          </>
+        )}
+        <div>
+          <Label htmlFor="h-query">Query parameters (key=value per line)</Label>
+          <Textarea
+            id="h-query"
+            name="http_queryParams"
+            rows={2}
+            className="font-mono text-xs"
+            defaultValue={mapToLines(cfg?.queryParams, "=")}
+            placeholder={"to={{to}}\ntext={{message}}"}
+          />
+        </div>
+        <div>
+          <Label htmlFor="h-headers">Custom headers (Name: value per line)</Label>
+          <Textarea
+            id="h-headers"
+            name="http_headers"
+            rows={2}
+            className="font-mono text-xs"
+            defaultValue={mapToLines(cfg?.headers)}
+            placeholder={"X-Client: sms-panel"}
+          />
+        </div>
+      </fieldset>
+
+      <fieldset className="sm:col-span-2 grid grid-cols-1 gap-4 rounded-md border border-gray-200 p-4 sm:grid-cols-2">
+        <legend className="px-1 text-xs font-semibold uppercase text-gray-500">Authentication</legend>
+        <div>
+          <Label htmlFor="h-auth">Authentication type</Label>
+          <Select id="h-auth" name="http_authType" value={authType} onChange={(e) => setAuthType(e.target.value)}>
+            {AUTH_TYPES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {needsAuthName && (
+          <div>
+            <Label htmlFor="h-authName">
+              {authType === "API_KEY_QUERY" ? "Query parameter name" : "Header name"}
+            </Label>
+            <Input
+              id="h-authName"
+              name="http_authName"
+              defaultValue={cfg?.authName ?? ""}
+              placeholder={authType === "API_KEY_QUERY" ? "api_key" : "X-API-Key"}
+            />
+          </div>
+        )}
+        {authType === "CUSTOM_HEADER" && (
+          <div>
+            <Label htmlFor="h-authValue">Header value template</Label>
+            <Input
+              id="h-authValue"
+              name="http_authValueTemplate"
+              defaultValue={cfg?.authValueTemplate ?? ""}
+              placeholder="Token {{apiKey}}"
+            />
+          </div>
+        )}
+        {needsApiKey && (
+          <div>
+            <Label htmlFor="h-apiKey">API key / token</Label>
+            <Input
+              id="h-apiKey"
+              name="apiKey"
+              type="password"
+              placeholder={provider?.hasApiKey ? "•••••• (leave blank to keep)" : ""}
+            />
+            <p className="mt-1 text-xs text-gray-500">Stored encrypted, never shown again.</p>
+          </div>
+        )}
+        {needsBasic && (
+          <>
+            <div>
+              <Label htmlFor="h-username">Username</Label>
+              <Input
+                id="h-username"
+                name="accountSid"
+                type="password"
+                placeholder={provider?.accountSidMasked ? "•••••• (leave blank to keep)" : ""}
+              />
+            </div>
+            <div>
+              <Label htmlFor="h-password">Password</Label>
+              <Input
+                id="h-password"
+                name="apiSecret"
+                type="password"
+                placeholder={provider?.hasApiSecret ? "•••••• (leave blank to keep)" : ""}
+              />
+            </div>
+          </>
+        )}
+        <div>
+          <Label htmlFor="h-sender">{"Sender / CLI ({{from}})"}</Label>
+          <Input id="h-sender" name="senderId" defaultValue={provider?.senderId ?? ""} placeholder="MyBrand or +1555..." />
+        </div>
+      </fieldset>
+
+      <fieldset className="sm:col-span-2 grid grid-cols-1 gap-4 rounded-md border border-gray-200 p-4 sm:grid-cols-3">
+        <legend className="px-1 text-xs font-semibold uppercase text-gray-500">Response & advanced</legend>
+        <div>
+          <Label htmlFor="h-success">Success status codes</Label>
+          <Input
+            id="h-success"
+            name="http_successCodes"
+            defaultValue={(cfg?.successCodes ?? [200, 201, 202]).join(", ")}
+            placeholder="200, 201, 202"
+          />
+        </div>
+        <div>
+          <Label htmlFor="h-msgid">Message ID path</Label>
+          <Input id="h-msgid" name="http_messageIdPath" defaultValue={cfg?.messageIdPath ?? ""} placeholder="$.data.id" />
+        </div>
+        <div>
+          <Label htmlFor="h-status">Status path</Label>
+          <Input id="h-status" name="http_statusPath" defaultValue={cfg?.statusPath ?? ""} placeholder="$.status" />
+        </div>
+        <div>
+          <Label htmlFor="h-timeout">Timeout (ms)</Label>
+          <Input
+            id="h-timeout"
+            name="http_timeoutMs"
+            type="number"
+            min={1000}
+            max={60000}
+            defaultValue={cfg?.timeoutMs ?? 15000}
+          />
+        </div>
+      </fieldset>
+    </>
+  );
 }
 
 export default function AdminProvidersPage() {
@@ -35,7 +306,7 @@ export default function AdminProvidersPage() {
   const [types, setTypes] = useState<Record<string, ProviderTypeInfo>>({});
   const [feedback, setFeedback] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [createType, setCreateType] = useState("TWILIO");
+  const [createType, setCreateType] = useState("HTTP");
   const [editing, setEditing] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -69,17 +340,22 @@ export default function AdminProvidersPage() {
     setFeedback(null);
     const form = new FormData(e.currentTarget);
     const typeInfo = types[createType];
+    const payload: Record<string, unknown> = {
+      name: form.get("name"),
+      type: createType,
+      priority: Number(form.get("priority") || 100),
+      isActive: form.get("isActive") === "on",
+      isDefault: form.get("isDefault") === "on",
+      ...collectFields(form, typeInfo),
+    };
+    if (createType === "HTTP") {
+      payload.apiBaseUrl = String(form.get("apiBaseUrl") || "");
+      payload.config = collectHttpConfig(form);
+    }
     const res = await fetch("/api/admin/providers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.get("name"),
-        type: createType,
-        priority: Number(form.get("priority") || 100),
-        isActive: form.get("isActive") === "on",
-        isDefault: form.get("isDefault") === "on",
-        ...collectFields(form, typeInfo),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     setBusy(false);
@@ -98,14 +374,21 @@ export default function AdminProvidersPage() {
     setFeedback(null);
     const form = new FormData(e.currentTarget);
     const typeInfo = types[provider.type];
+    const payload: Record<string, unknown> = {
+      name: form.get("name"),
+      priority: Number(form.get("priority") || provider.priority),
+      ...collectFields(form, typeInfo),
+    };
+    if (provider.type === "HTTP") {
+      payload.apiBaseUrl = String(form.get("apiBaseUrl") || provider.apiBaseUrl || "");
+      payload.config = collectHttpConfig(form);
+      const sender = String(form.get("senderId") ?? "").trim();
+      payload.senderId = sender || null;
+    }
     const res = await fetch(`/api/admin/providers/${provider.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.get("name"),
-        priority: Number(form.get("priority") || provider.priority),
-        ...collectFields(form, typeInfo),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     setBusy(false);
@@ -156,7 +439,7 @@ export default function AdminProvidersPage() {
     }));
   };
 
-  const renderFields = (typeInfo: ProviderTypeInfo, provider?: Provider) => (
+  const renderBuiltinFields = (typeInfo: ProviderTypeInfo, provider?: Provider) => (
     <>
       {typeInfo.fields.map((field) => (
         <div key={field.key}>
@@ -169,7 +452,7 @@ export default function AdminProvidersPage() {
             placeholder={
               provider
                 ? field.secret
-                  ? provider.hasApiSecret
+                  ? provider.hasApiSecret || provider.hasApiKey || provider.accountSidMasked
                     ? "•••••• (leave blank to keep)"
                     : ""
                   : field.key === "accountSid"
@@ -213,7 +496,7 @@ export default function AdminProvidersPage() {
           <form onSubmit={createProvider} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor="p-name">Name</Label>
-              <Input id="p-name" name="name" required minLength={2} placeholder="Twilio main account" />
+              <Input id="p-name" name="name" required minLength={2} placeholder="My SMS Provider" />
             </div>
             <div>
               <Label htmlFor="p-type">Type</Label>
@@ -228,7 +511,13 @@ export default function AdminProvidersPage() {
                 <p className="mt-1 text-xs text-gray-500">{types[createType].description}</p>
               )}
             </div>
-            {types[createType] && renderFields(types[createType])}
+
+            {createType === "HTTP" ? (
+              <HttpConfigForm key="create-http" />
+            ) : (
+              types[createType] && renderBuiltinFields(types[createType])
+            )}
+
             <div>
               <Label htmlFor="p-priority">Priority (lower = preferred)</Label>
               <Input id="p-priority" name="priority" type="number" defaultValue={100} min={1} max={1000} />
@@ -268,8 +557,14 @@ export default function AdminProvidersPage() {
                 <p className="mt-1 text-xs text-gray-500">
                   Priority {provider.priority}
                   {provider.senderId && <> · Sender: {provider.senderId}</>}
-                  {provider.accountSidMasked && <> · SID: {provider.accountSidMasked}</>}
+                  {provider.type === "HTTP" && provider.apiBaseUrl && (
+                    <> · {provider.config?.method ?? "POST"} {provider.apiBaseUrl}</>
+                  )}
+                  {provider.accountSidMasked && provider.type !== "HTTP" && (
+                    <> · SID: {provider.accountSidMasked}</>
+                  )}
                   {provider.hasApiSecret && <> · Secret configured</>}
+                  {provider.hasApiKey && <> · Key configured</>}
                 </p>
                 {testResult[provider.id] && (
                   <p
@@ -341,7 +636,11 @@ export default function AdminProvidersPage() {
                     max={1000}
                   />
                 </div>
-                {renderFields(types[provider.type], provider)}
+                {provider.type === "HTTP" ? (
+                  <HttpConfigForm key={`edit-${provider.id}`} provider={provider} />
+                ) : (
+                  renderBuiltinFields(types[provider.type], provider)
+                )}
                 <div className="sm:col-span-2">
                   <Button type="submit" disabled={busy}>
                     {busy ? "Saving…" : "Save changes"}
