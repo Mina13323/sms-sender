@@ -9,6 +9,20 @@ import {
 
 const DEFAULT_BASE_URL = "https://api.twilio.com";
 
+/**
+ * Normalizes a Twilio base-URL override. The adapter appends
+ * "/2010-04-01/Accounts/..." itself, so a version path (or trailing slashes)
+ * accidentally included in the override is stripped to avoid doubled paths
+ * like "/2010-04-01/2010-04-01/..." which produce HTTP 404.
+ */
+export function normalizeTwilioBaseUrl(raw?: string): string {
+  let url = (raw || "").trim().replace(/\/+$/, "");
+  if (!url) return DEFAULT_BASE_URL;
+  url = url.replace(/\/2010-04-01(\/Accounts)?$/i, "");
+  return url.replace(/\/+$/, "") || DEFAULT_BASE_URL;
+}
+
+
 /** Maps Twilio message statuses to our provider-agnostic statuses. */
 export function mapTwilioStatus(status: string | undefined): SmsMessageStatus {
   switch ((status || "").toLowerCase()) {
@@ -44,8 +58,9 @@ export class TwilioProvider implements SmsProvider {
     this.accountSid = config.accountSid ?? "";
     this.authToken = config.apiSecret ?? "";
     this.from = config.senderId;
-    this.baseUrl = (config.apiBaseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = normalizeTwilioBaseUrl(config.apiBaseUrl);
   }
+
 
   private authHeader(): string {
     return "Basic " + Buffer.from(`${this.accountSid}:${this.authToken}`).toString("base64");
@@ -119,7 +134,15 @@ export class TwilioProvider implements SmsProvider {
       if (response.status === 401) {
         return { ok: false, message: "Authentication failed. Check Account SID / Auth Token." };
       }
+      if (response.status === 404) {
+        return {
+          ok: false,
+          message:
+            "Twilio returned HTTP 404 — check the Account SID and clear the API base URL override (leave it empty to use the default).",
+        };
+      }
       return { ok: false, message: `Twilio returned HTTP ${response.status}.` };
+
     } catch {
       return { ok: false, message: "Could not reach the Twilio API." };
     }

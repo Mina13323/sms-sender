@@ -384,7 +384,12 @@ export default function AdminProvidersPage() {
       payload.config = collectHttpConfig(form);
       const sender = String(form.get("senderId") ?? "").trim();
       payload.senderId = sender || null;
+    } else if (form.has("apiBaseUrl")) {
+      // Built-in providers: an emptied override field clears it (null),
+      // so a wrong base URL can always be removed from the UI.
+      payload.apiBaseUrl = String(form.get("apiBaseUrl") ?? "").trim() || null;
     }
+
     const res = await fetch(`/api/admin/providers/${provider.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -450,25 +455,30 @@ export default function AdminProvidersPage() {
             type={field.secret ? "password" : "text"}
             required={field.required && !provider}
             placeholder={
-              provider
-                ? field.secret
-                  ? provider.hasApiSecret || provider.hasApiKey || provider.accountSidMasked
-                    ? "•••••• (leave blank to keep)"
-                    : ""
-                  : field.key === "accountSid"
-                    ? provider.accountSidMasked ?? ""
-                    : field.key === "senderId"
-                      ? provider.senderId ?? ""
-                      : field.key === "apiBaseUrl"
-                        ? provider.apiBaseUrl ?? ""
+              field.key === "apiBaseUrl"
+                ? "https://api.twilio.com (leave empty for default)"
+                : provider
+                  ? field.secret
+                    ? provider.hasApiSecret || provider.hasApiKey || provider.accountSidMasked
+                      ? "•••••• (leave blank to keep)"
+                      : ""
+                    : field.key === "accountSid"
+                      ? provider.accountSidMasked ?? ""
+                      : field.key === "senderId"
+                        ? provider.senderId ?? ""
                         : ""
-                : undefined
+                  : undefined
             }
             defaultValue={
-              provider && !field.secret && field.key === "senderId"
-                ? provider.senderId ?? ""
+              provider && !field.secret
+                ? field.key === "senderId"
+                  ? provider.senderId ?? ""
+                  : field.key === "apiBaseUrl"
+                    ? provider.apiBaseUrl ?? ""
+                    : undefined
                 : undefined
             }
+
           />
           {field.help && <p className="mt-1 text-xs text-gray-500">{field.help}</p>}
         </div>
