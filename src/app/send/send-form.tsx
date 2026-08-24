@@ -29,6 +29,8 @@ export function SendForm() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [feedback, setFeedback] = useState("");
   const [results, setResults] = useState<PerRecipientResult[]>([]);
+  const [viaProvider, setViaProvider] = useState<{ name: string; type: string } | null>(null);
+
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -55,6 +57,8 @@ export function SendForm() {
     setStatus("loading");
     setFeedback("");
     setResults([]);
+    setViaProvider(null);
+
 
     try {
       const res = await fetch("/api/sms/send", {
@@ -72,6 +76,7 @@ export function SendForm() {
         setStatus("success");
         setFeedback(data.message || "SMS submitted successfully.");
         setResults(data.results ?? []);
+        setViaProvider(data.provider ?? null);
         setMessage("");
         setRecipients("");
         setConsent(false);
@@ -79,7 +84,9 @@ export function SendForm() {
         setStatus("error");
         setFeedback(data.message || "Unable to send SMS. Please try again.");
         setResults(data.results ?? []);
+        setViaProvider(data.provider ?? null);
       }
+
     } catch {
       setStatus("error");
       setFeedback("Unable to send SMS. Please try again.");
@@ -93,6 +100,20 @@ export function SendForm() {
       <form onSubmit={submit} className="space-y-5">
         {status === "success" && <Alert tone="success">{feedback}</Alert>}
         {status === "error" && <Alert tone="error">{feedback}</Alert>}
+        {viaProvider && (
+          <p className="text-xs text-gray-500">
+            Handled by provider: <span className="font-medium">{viaProvider.name}</span> (
+            {viaProvider.type})
+          </p>
+        )}
+        {viaProvider?.type === "MOCK" && (
+          <Alert tone="info">
+            This send was handled by the <strong>Mock provider</strong> — no real SMS was
+            transmitted. An administrator should deactivate Mock or set a real provider as
+            default.
+          </Alert>
+        )}
+
 
         {results.length > 1 && (
           <div className="rounded-md border border-gray-200 text-sm">

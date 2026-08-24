@@ -103,6 +103,10 @@ export async function POST(req: NextRequest) {
 
     const batch = await sendBatch(context, valid, message, user.id);
 
+    // Provider identity (name/type only — never credentials) so users can see
+    // which provider handled the send, e.g. to catch Mock handling real sends.
+    const providerInfo = { name: context.provider.name, type: context.provider.type };
+
     // Safe log: counts only — never recipients or bodies.
     console.log(
       `SMS send: user=${user.id} provider=${context.provider.type} ok=${batch.sentCount} failed=${batch.failedCount}`,
@@ -110,7 +114,12 @@ export async function POST(req: NextRequest) {
 
     if (batch.sentCount === 0) {
       return NextResponse.json(
-        { success: false, message: "Unable to send SMS. Please try again.", results: batch.results },
+        {
+          success: false,
+          message: "Unable to send SMS. Please try again.",
+          results: batch.results,
+          provider: providerInfo,
+        },
         { status: 502 },
       );
     }
@@ -123,7 +132,9 @@ export async function POST(req: NextRequest) {
           : `Submitted ${batch.sentCount} of ${batch.results.length} messages.`,
       results: batch.results,
       segmentsPerMessage: batch.segmentsPerMessage,
+      provider: providerInfo,
     });
+
   } catch {
     console.error("SMS send: unexpected error.");
     return NextResponse.json(
