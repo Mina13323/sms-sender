@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizePhone, parseRecipients } from "@/lib/phone";
+import { normalizePhone, parseRecipients, suggestE164 } from "@/lib/phone";
 
 describe("normalizePhone", () => {
   it("accepts valid E.164", () => {
@@ -24,6 +24,22 @@ describe("normalizePhone", () => {
     expect(normalizePhone("+1234567890123456")).toBeNull();
   });
 });
+
+describe("suggestE164", () => {
+  it("suggests adding + for full international digits", () => {
+    expect(suggestE164("93770562824")).toBe("+93770562824");
+    expect(suggestE164("1 (415) 555-0199")).toBe("+14155550199");
+  });
+  it("never suggests for local-looking numbers starting with 0", () => {
+    expect(suggestE164("0771234567")).toBeNull();
+    expect(suggestE164("01012345678")).toBeNull();
+  });
+  it("returns null for garbage or already-valid entries", () => {
+    expect(suggestE164("abc")).toBeNull();
+    expect(suggestE164("+93770562824")).toBeNull();
+  });
+});
+
 
 describe("parseRecipients", () => {
   it("parses newline and comma separated lists", () => {
