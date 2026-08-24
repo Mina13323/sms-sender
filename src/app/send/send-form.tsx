@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { countSegments } from "@/lib/segments";
-import { parseRecipients } from "@/lib/phone";
+import { parseRecipients, suggestE164 } from "@/lib/phone";
 import { Alert, Button, Card, Label, Select, Textarea } from "@/components/ui";
 
 interface RouteOption {
@@ -123,10 +123,37 @@ export function SendForm() {
           <p className="mt-1 text-xs text-gray-500">
             International format (+countrycode…), one per line or comma separated.
             {parsed.valid.length > 0 && ` ${parsed.valid.length} valid recipient(s).`}
-            {parsed.invalid.length > 0 && (
-              <span className="text-red-600"> {parsed.invalid.length} invalid entr(y/ies).</span>
-            )}
           </p>
+          {parsed.invalid.length > 0 && (
+            <div className="mt-1 space-y-0.5 text-xs">
+              {parsed.invalid.map((entry) => {
+                const suggestion = suggestE164(entry);
+                return (
+                  <p key={entry} className="text-red-600">
+                    <span className="font-mono">{entry}</span> is invalid —{" "}
+                    {suggestion ? (
+                      <>
+                        did you mean{" "}
+                        <button
+                          type="button"
+                          className="font-mono font-semibold underline hover:text-red-800"
+                          onClick={() =>
+                            setRecipients((prev) => prev.replace(entry, suggestion))
+                          }
+                        >
+                          {suggestion}
+                        </button>
+                        ? Click to fix.
+                      </>
+                    ) : (
+                      <>must start with + and a country code (e.g. +14155550199).</>
+                    )}
+                  </p>
+                );
+              })}
+            </div>
+          )}
+
         </div>
 
         <div>

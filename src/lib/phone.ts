@@ -22,7 +22,20 @@ export interface ParsedRecipients {
   invalid: string[];
 }
 
+/**
+ * For an invalid entry, suggests a plausible E.164 fix (a missing leading "+")
+ * or null. Never guesses a country code — only offers the "+" when the digits
+ * already look like a full international number (can't start with 0).
+ */
+export function suggestE164(raw: string): string | null {
+  const s = raw.trim().replace(/[\s\-().]/g, "");
+  if (/^[1-9]\d{7,14}$/.test(s)) return `+${s}`;
+  return null;
+}
+
+
 /** Parses a newline/comma separated list of numbers; dedupes valid ones. */
+
 export function parseRecipients(input: string, max = 50): ParsedRecipients {
   const parts = input
     .split(/[\n,;]+/)
