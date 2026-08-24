@@ -74,6 +74,23 @@ CREATE TABLE IF NOT EXISTS usage_counters (
   PRIMARY KEY (day, user_id)
 );
 
+-- Final delivery outcomes reported by providers via status webhooks
+-- (e.g. Twilio's StatusCallback). This stores ONLY the provider's opaque
+-- message id, the normalized status, an error code and the owning user —
+-- NEVER the recipient, sender or message body, so it carries no PII.
+CREATE TABLE IF NOT EXISTS sms_deliveries (
+  provider_message_id TEXT PRIMARY KEY,
+  provider_type       TEXT NOT NULL DEFAULT 'TWILIO',
+  user_id             TEXT,
+  status              TEXT NOT NULL DEFAULT 'submitted'
+                        CHECK (status IN ('submitted','sent','delivered','undelivered','failed')),
+  error_code          INTEGER,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_sms_routes_provider ON sms_routes(provider_id);
 CREATE INDEX IF NOT EXISTS idx_sms_routes_active ON sms_routes(is_active);
 CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active);
+CREATE INDEX IF NOT EXISTS idx_sms_deliveries_user_day ON sms_deliveries(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_sms_deliveries_status ON sms_deliveries(status);

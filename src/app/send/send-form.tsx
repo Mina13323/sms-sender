@@ -14,10 +14,18 @@ interface RouteOption {
   currency: string;
 }
 
+interface ErrorHint {
+  title: string;
+  hint: string;
+}
+
 interface PerRecipientResult {
   to: string;
   success: boolean;
   status: string;
+  providerMessageId?: string;
+  errorCode?: string;
+  errorHint?: ErrorHint;
 }
 
 export function SendForm() {
@@ -29,6 +37,8 @@ export function SendForm() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [feedback, setFeedback] = useState("");
   const [results, setResults] = useState<PerRecipientResult[]>([]);
+  const [viaProvider, setViaProvider] = useState<{ name: string; type: string } | null>(null);
+
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -55,6 +65,8 @@ export function SendForm() {
     setStatus("loading");
     setFeedback("");
     setResults([]);
+    setViaProvider(null);
+
 
     try {
       const res = await fetch("/api/sms/send", {
@@ -72,6 +84,7 @@ export function SendForm() {
         setStatus("success");
         setFeedback(data.message || "SMS submitted successfully.");
         setResults(data.results ?? []);
+        setViaProvider(data.provider ?? null);
         setMessage("");
         setRecipients("");
         setConsent(false);
@@ -79,7 +92,9 @@ export function SendForm() {
         setStatus("error");
         setFeedback(data.message || "Unable to send SMS. Please try again.");
         setResults(data.results ?? []);
+        setViaProvider(data.provider ?? null);
       }
+
     } catch {
       setStatus("error");
       setFeedback("Unable to send SMS. Please try again.");
@@ -93,20 +108,70 @@ export function SendForm() {
       <form onSubmit={submit} className="space-y-5">
         {status === "success" && <Alert tone="success">{feedback}</Alert>}
         {status === "error" && <Alert tone="error">{feedback}</Alert>}
+        {viaProvider && (
+          <p className="text-xs text-gray-500">
+            Handled by provider: <span className="font-medium">{viaProvider.name}</span> (
+            {viaProvider.type})
+          </p>
+        )}
+        {viaProvider?.type === "MOCK" && (
+          <Alert tone="info">
+            This send was handled by the <strong>Mock provider</strong> — no real SMS was
+            transmitted. An administrator should deactivate Mock or set a real provider as
+            default.
+          </Alert>
+        )}
 
-        {results.length > 1 && (
-          <div className="rounded-md border border-gray-200 text-sm">
+
+        {results.length > 0 && (
+          <div className="space-y-3 rounded-md border border-gray-200 p-3 text-sm">
             {results.map((r) => (
-              <div
-                key={r.to}
-                className="flex items-center justify-between border-b border-gray-100 px-3 py-1.5 last:border-b-0"
-              >
-                <span className="font-mono text-xs">{r.to}</span>
-                <span className={r.success ? "text-green-600" : "text-red-600"}>
-                  {r.success ? r.status : "failed"}
-                </span>
+              <div key={r.to} className="space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-xs">{r.to}</span>
+                  <span
+                    className={
+                      r.success
+                        ? "rounded bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700"
+                        : "rounded bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"
+                    }
+                  >
+                    {r.success ? r.status : "failed"}
+                  </span>
+                </div>
+                {r.success && r.providerMessageId && (
+                  <p className="text-xs text-gray-500">
+                    Provider message ID:{" "}
+                    <span className="font-mono select-all">{r.providerMessageId}</span>
+                    {r.status === "delivered" ? (
+                      <span className="text-green-600"> · delivered</span>
+                    ) : (
+                      <span className="text-gray-400">
+                        {" "}
+                        · delivery confirmed later by the provider
+                      </span>
+                    )}
+                  </p>
+                )}
+                {!r.success && (r.errorHint || r.errorCode) && (
+                  <p className="text-xs text-red-600">
+                    {r.errorHint ? (
+                      <>
+                        <span className="font-semibold">{r.errorHint.title}.</span>{" "}
+                        {r.errorHint.hint}
+                      </>
+                    ) : (
+                      <>Error code: {r.errorCode}</>
+                    )}
+                  </p>
+                )}
               </div>
             ))}
+            <p className="text-xs text-gray-400">
+              &ldquo;Submitted&rdquo; means the provider accepted the message into its queue — it is
+              not yet proof of delivery. Final delivery is reported by the provider and shown on the
+              admin dashboard.
+            </p>
           </div>
         )}
 

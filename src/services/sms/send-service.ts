@@ -57,6 +57,11 @@ export interface PerRecipientResult {
   to: string; // echoed back to the requesting client only (never persisted/logged)
   success: boolean;
   status: string;
+  /** Provider's opaque message id (e.g. the Twilio SID) — shown so it can be
+   *  looked up in the provider console. Not PII. Never persisted alongside a recipient. */
+  providerMessageId?: string;
+  /** Safe, non-sensitive error code on failure (e.g. twilio_21608). */
+  errorCode?: string;
 }
 
 export interface SendBatchResult {
@@ -82,10 +87,34 @@ export async function sendBatch(
     const result = await context.adapter.sendSms({ to, body: message, from: context.from });
     if (result.success) {
       sentCount += 1;
+      // Seed a delivery row keyed by the provider message id so the status
+      // webhook (when configured) can later update it with the real outcome.
+      // Stores NO recipient / sender / body — only the opaque id + owning user.
+      if (result.providerMessageId) {
+        await query(
+          `INSERT INTO sms_deliveries (provider_message_id, provider_type, user_id, status)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (provider_message_id) DO NOTHING`,
+          [
+            result.providerMessageId,
+            context.provider.type,
+            userId,
+            result.status ?? "submitted",
+          ],
+        ).catch(() => {
+          // delivery tracking must never fail the send
+        });
+      }
     } else {
       failedCount += 1;
     }
-    results.push({ to, success: result.success, status: result.status });
+    results.push({
+      to,
+      success: result.success,
+      status: result.status,
+      providerMessageId: result.providerMessageId,
+      errorCode: result.errorCode,
+    });
   }
 
   // Aggregate, PII-free usage counters (numbers only — no bodies, no recipients).

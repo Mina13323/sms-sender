@@ -22,7 +22,8 @@ SMS send API ──► send-service ──► SmsProvider interface
 
 
 - **Credential security**: provider secrets are AES-256-GCM encrypted at rest (`APP_ENCRYPTION_KEY`) and never returned by any API (only masked values / boolean flags).
-- **Privacy by design**: no leads/contacts/message tables exist. Recipient numbers and message bodies are never persisted and never logged. Only aggregate usage counters (message/segment/failure counts per user per day) are stored.
+- **Privacy by design**: no leads/contacts/message tables exist. Recipient numbers and message bodies are never persisted and never logged. Only aggregate usage counters (message/segment/failure counts per user per day) and provider delivery outcomes (keyed by the provider's opaque message id — never the recipient or body) are stored.
+- **Delivery tracking**: because "submitted to the provider" ≠ "received on the phone", Twilio is asked to POST a delivery-status callback (`POST /api/sms/status`, HMAC-signed and verified against the owning account's Auth Token). Final `delivered`/`undelivered`/`failed` outcomes surface on the admin dashboard. Send results also show the provider's message id (e.g. the Twilio SID) and, on failure, a plain-language explanation of the error code. Set `APP_PUBLIC_BASE_URL` to enable callbacks.
 - **Rate limiting**: database-backed fixed windows (serverless-safe) for login attempts and SMS sending, plus a duplicate-send guard (HMAC fingerprint, no PII).
 
 ### Pages
@@ -39,7 +40,7 @@ SMS send API ──► send-service ──► SmsProvider interface
 
 ### API
 
-`POST /api/auth/login|logout`, `GET /api/auth/me`, `POST /api/sms/send`, `GET /api/routes`,
+`POST /api/auth/login|logout`, `GET /api/auth/me`, `POST /api/sms/send`, `POST /api/sms/status` (Twilio webhook), `GET /api/routes`,
 `GET|POST /api/admin/users`, `PATCH /api/admin/users/:id`,
 `GET|POST /api/admin/providers`, `PATCH|DELETE /api/admin/providers/:id`, `POST /api/admin/providers/:id/test`,
 `GET|POST /api/admin/routes`, `PATCH|DELETE /api/admin/routes/:id`,
@@ -56,6 +57,7 @@ Copy `.env.example` to `.env` and fill in:
 | `DATABASE_URL` | PostgreSQL connection string (Supabase in production) |
 | `AUTH_SECRET` | Session signing secret — `openssl rand -base64 32` |
 | `APP_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption — `openssl rand -base64 32` |
+| `APP_PUBLIC_BASE_URL` | _(optional)_ public base URL so Twilio can POST delivery callbacks (`…/api/sms/status`). Enables delivery tracking. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Initial super admin (seed script only) |
 
 ### 2. Database
@@ -92,6 +94,8 @@ Log in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 4. Disable or delete the Mock provider in production. The system never falls back from a failed real provider to mock.
 
 Credentials are encrypted before storage and are never sent back to the browser.
+
+> **"Submitted" is not "delivered".** A successful send only means Twilio accepted the message into its queue (status `queued`/`submitted`). The actual handset delivery happens asynchronously — to see it, set `APP_PUBLIC_BASE_URL` so Twilio reports the final status back, then watch the **Delivery** panel on the admin dashboard. To debug a specific send, use the **provider message id** (the Twilio `SM…` SID) shown on the send result to look the message up in the Twilio console logs.
 
 ## Adding another provider
 
