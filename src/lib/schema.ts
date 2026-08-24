@@ -80,8 +80,12 @@ export const providerCreateSchema = z.object({
   isActive: z.boolean().default(true),
   isDefault: z.boolean().default(false),
   priority: z.number().int().min(1).max(1000).default(100),
-  apiBaseUrl: z.string().trim().url().max(500).optional().or(z.literal("")).transform((v) => v || undefined),
+  apiBaseUrl: z
+    .union([z.string().trim().url().max(500), z.literal(""), z.null()])
+    .optional()
+    .transform((v) => (v === "" ? null : v)),
   accountSid: z.string().trim().max(200).optional(),
+
   apiKey: z.string().trim().max(500).optional(),
   apiSecret: z.string().trim().max(500).optional(),
   senderId: z.string().trim().max(50).nullable().optional(),
