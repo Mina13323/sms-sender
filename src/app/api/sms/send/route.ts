@@ -6,6 +6,7 @@ import { checkRateLimit, isDuplicate } from "@/lib/rate-limit";
 import { hmacKey } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { resolveSendingContext, sendBatch } from "@/services/sms/send-service";
+import { describeTwilioErrorCode } from "@/services/sms/providers/twilio-provider";
 
 export const runtime = "nodejs";
 
@@ -107,6 +108,16 @@ export async function POST(req: NextRequest) {
     // which provider handled the send, e.g. to catch Mock handling real sends.
     const providerInfo = { name: context.provider.name, type: context.provider.type };
 
+    // Attach human-readable hints to failures so users can act on them without
+    // server logs (e.g. trial-account / unverified-number explanations).
+    const results = batch.results.map((r) => {
+      let errorHint: { title: string; hint: string } | undefined;
+      if (!r.success && r.errorCode?.startsWith("twilio_")) {
+        errorHint = describeTwilioErrorCode(r.errorCode.replace(/^twilio_/, "")) ?? undefined;
+      }
+      return errorHint ? { ...r, errorHint } : r;
+    });
+
     // Safe log: counts only — never recipients or bodies.
     console.log(
       `SMS send: user=${user.id} provider=${context.provider.type} ok=${batch.sentCount} failed=${batch.failedCount}`,
@@ -117,7 +128,7 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           message: "Unable to send SMS. Please try again.",
-          results: batch.results,
+          results,
           provider: providerInfo,
         },
         { status: 502 },
@@ -130,7 +141,7 @@ export async function POST(req: NextRequest) {
         batch.failedCount === 0
           ? "SMS submitted successfully."
           : `Submitted ${batch.sentCount} of ${batch.results.length} messages.`,
-      results: batch.results,
+      results,
       segmentsPerMessage: batch.segmentsPerMessage,
       provider: providerInfo,
     });

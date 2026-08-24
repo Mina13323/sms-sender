@@ -8,6 +8,7 @@ interface Stats {
   providers: { total: number; active: number };
   routes: { total: number; active: number };
   usageLast30Days: { messages: number; segments: number; failed: number };
+  deliveryLast30Days: { tracked: number; delivered: number; undelivered: number; failed: number };
 }
 
 export default function AdminDashboard() {
@@ -38,6 +39,9 @@ export default function AdminDashboard() {
     },
   ];
 
+  const d = stats.deliveryLast30Days;
+  const deliveryRate = d.tracked > 0 ? Math.round((d.delivered / d.tracked) * 100) : null;
+
   return (
     <div>
       <h1 className="mb-4 text-lg font-bold">Dashboard</h1>
@@ -50,6 +54,44 @@ export default function AdminDashboard() {
           </Card>
         ))}
       </div>
+
+      <h2 className="mb-2 mt-8 text-base font-semibold">Delivery (last 30 days)</h2>
+      <Card>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm text-gray-500">Delivered</p>
+            <p className="text-2xl font-bold text-green-600">
+              {deliveryRate !== null ? `${deliveryRate}%` : "—"}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-6 text-center">
+            <div>
+              <p className="text-lg font-bold">{d.delivered}</p>
+              <p className="text-xs text-gray-500">delivered</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-amber-600">{d.undelivered}</p>
+              <p className="text-xs text-gray-500">undelivered</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-red-600">{d.failed}</p>
+              <p className="text-xs text-gray-500">failed</p>
+            </div>
+          </div>
+        </div>
+        {d.tracked === 0 ? (
+          <p className="mt-3 text-xs text-gray-400">
+            No delivery callbacks received yet. Set <code className="font-mono">APP_PUBLIC_BASE_URL</code>{" "}
+            and ensure the Twilio provider is reachable so status callbacks can be recorded.
+          </p>
+        ) : (
+          <p className="mt-3 text-xs text-gray-400">
+            Out of {d.tracked} tracked {d.tracked === 1 ? "message" : "messages"}. Provider reports
+            the final delivery outcome — recipient numbers and content are never stored.
+          </p>
+        )}
+      </Card>
+
       <p className="mt-6 text-xs text-gray-400">
         Usage counters are aggregates only — no message content or recipient data is stored.
       </p>

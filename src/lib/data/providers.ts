@@ -227,6 +227,19 @@ export function toRuntimeConfig(row: ProviderRow): ProviderRuntimeConfig {
     apiKey: dec(row.api_key_enc),
     apiSecret: dec(row.api_secret_enc),
     senderId: row.sender_id ?? undefined,
+    statusCallbackUrl: twilioStatusCallbackUrl(),
     http: row.config ?? undefined,
   };
+}
+
+/**
+ * The public URL Twilio should POST delivery-status callbacks to.
+ * Derived from APP_PUBLIC_BASE_URL (e.g. https://sms.example.com). When that
+ * env var is absent (local dev), returns undefined and status callbacks are
+ * simply not requested — sending still works, only delivery tracking is off.
+ */
+export function twilioStatusCallbackUrl(): string | undefined {
+  const base = process.env.APP_PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
+  if (!base) return undefined;
+  return `${base}/api/sms/status`;
 }

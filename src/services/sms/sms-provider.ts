@@ -48,6 +48,8 @@ export interface ProviderRuntimeConfig {
   apiKey?: string;
   apiSecret?: string;
   senderId?: string;
+  /** Public URL the provider should POST delivery-status callbacks to (optional). */
+  statusCallbackUrl?: string;
   /** Non-secret generic HTTP configuration (from the providers.config JSONB). */
   http?: GenericHttpConfig;
 }
