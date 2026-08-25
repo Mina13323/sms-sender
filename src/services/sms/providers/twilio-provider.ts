@@ -32,7 +32,7 @@ export function describeTwilioErrorCode(code: string | number | undefined): Twil
     },
     21408: {
       title: "Geographic permissions disabled",
-      hint: "SMS to this country isn't enabled. In the Twilio console enable geo-permissions for the destination country.",
+      hint: "SMS to this country isn't enabled. In the Twilio console go to Messaging → Settings → Geo Permissions and enable the destination country. Changes apply immediately.",
     },
     21602: {
       title: "Empty or invalid message",
@@ -40,7 +40,7 @@ export function describeTwilioErrorCode(code: string | number | undefined): Twil
     },
     21608: {
       title: "Trial account — unverified number",
-      hint: "A Twilio trial account can only send to numbers you've verified first. Verify the recipient in Twilio, or upgrade the account.",
+      hint: "A Twilio trial account can only send to numbers you've verified first. Either verify the recipient under Phone Numbers → Verified Caller IDs, or upgrade the account and complete an approved Primary Compliance Profile.",
     },
     21610: {
       title: "Unreachable / blocked number",

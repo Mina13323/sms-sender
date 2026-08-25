@@ -4,7 +4,7 @@ A focused, production-ready SMS panel:
 
 - **Users** log in and get a simple **Send SMS** page.
 - A **Super Admin** manages the whole system: users, SMS providers, routes/pricing and settings.
-- Multi-provider architecture — Twilio is the first real adapter, more can be added without rewriting the app.
+- **Multi-provider architecture** — Twilio and Vonage are built-in adapters; any HTTP/REST API needs no code; more can be added without rewriting the app.
 
 ## Architecture
 
@@ -17,6 +17,7 @@ A focused, production-ready SMS panel:
 SMS send API ──► send-service ──► SmsProvider interface
                                      ├─ GenericHttpProvider (any HTTP/REST SMS API — fully admin-configured)
                                      ├─ TwilioProvider      (built-in)
+                                     ├─ VonageProvider      (built-in)
                                      └─ MockProvider        (development only)
 ```
 
@@ -96,6 +97,15 @@ Log in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 Credentials are encrypted before storage and are never sent back to the browser.
 
 > **"Submitted" is not "delivered".** A successful send only means Twilio accepted the message into its queue (status `queued`/`submitted`). The actual handset delivery happens asynchronously — to see it, set `APP_PUBLIC_BASE_URL` so Twilio reports the final status back, then watch the **Delivery** panel on the admin dashboard. To debug a specific send, use the **provider message id** (the Twilio `SM…` SID) shown on the send result to look the message up in the Twilio console logs.
+
+## Provider setup (Vonage)
+
+1. Log in as super admin → **Admin → Providers → Add provider**.
+2. Type: **Vonage**. Enter your **API key** and **API secret** (from dashboard.vonage.com → API settings), and a **From** value — a number rented from Vonage or an alphanumeric sender approved for the destination.
+3. Mark it **Active** and (usually) **Default**, save, then click **Test connection** → should show `CONNECTED` with your account balance.
+4. Run `pnpm db:migrate` once so the `providers.type` CHECK allows `VONAGE` (the migration is idempotent and upgrades existing databases).
+
+> Vonage's SMS API returns HTTP 200 for both success and logical failure — the outcome is in `messages[].status` (`"0"` = accepted). The Vonage adapter reads that field so failures (e.g. invalid credentials, quota exceeded, invalid sender) are reported as failures with a plain-language hint, instead of being masked as a successful 200.
 
 ## Adding another provider
 

@@ -76,7 +76,7 @@ export type HttpConfigData = z.infer<typeof httpConfigSchema>;
 
 export const providerCreateSchema = z.object({
   name: z.string().trim().min(2).max(100),
-  type: z.enum(["TWILIO", "MOCK", "HTTP"]),
+  type: z.enum(["TWILIO", "MOCK", "HTTP", "VONAGE"]),
   isActive: z.boolean().default(true),
   isDefault: z.boolean().default(false),
   priority: z.number().int().min(1).max(1000).default(100),

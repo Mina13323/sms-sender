@@ -1,5 +1,6 @@
 import { ProviderRuntimeConfig, SmsProvider } from "./sms-provider";
 import { TwilioProvider } from "./providers/twilio-provider";
+import { VonageProvider } from "./providers/vonage-provider";
 import { MockProvider } from "./providers/mock-provider";
 import { GenericHttpProvider } from "./providers/http-provider";
 
@@ -14,6 +15,8 @@ export function createProviderAdapter(config: ProviderRuntimeConfig): SmsProvide
   switch (config.type) {
     case "TWILIO":
       return new TwilioProvider(config);
+    case "VONAGE":
+      return new VonageProvider(config);
     case "MOCK":
       return new MockProvider();
     case "HTTP":

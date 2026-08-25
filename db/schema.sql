@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS providers (
   id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name            TEXT NOT NULL,
-  type            TEXT NOT NULL CHECK (type IN ('TWILIO', 'MOCK', 'HTTP')),
+  type            TEXT NOT NULL CHECK (type IN ('TWILIO', 'MOCK', 'HTTP', 'VONAGE')),
 
   is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   is_default      BOOLEAN NOT NULL DEFAULT FALSE,
@@ -33,6 +33,22 @@ CREATE TABLE IF NOT EXISTS providers (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Allow the VONAGE provider type on databases created before it existed.
+-- Idempotent: re-runs are a no-op once the constraint already allows VONAGE.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'providers'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%VONAGE%'
+  ) THEN
+    ALTER TABLE providers DROP CONSTRAINT IF EXISTS providers_type_check;
+    ALTER TABLE providers ADD CONSTRAINT providers_type_check
+      CHECK (type IN ('TWILIO', 'MOCK', 'HTTP', 'VONAGE'));
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS sms_routes (
   id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
