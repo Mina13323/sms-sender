@@ -7,6 +7,7 @@ import { hmacKey } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { resolveSendingContext, sendBatch } from "@/services/sms/send-service";
 import { describeTwilioErrorCode } from "@/services/sms/providers/twilio-provider";
+import { describeVonageErrorCode } from "@/services/sms/providers/vonage-provider";
 
 export const runtime = "nodejs";
 
@@ -114,6 +115,9 @@ export async function POST(req: NextRequest) {
       let errorHint: { title: string; hint: string } | undefined;
       if (!r.success && r.errorCode?.startsWith("twilio_")) {
         errorHint = describeTwilioErrorCode(r.errorCode.replace(/^twilio_/, "")) ?? undefined;
+      } else if (!r.success && r.errorCode?.startsWith("vonage_")) {
+        errorHint =
+          describeVonageErrorCode(r.errorCode.replace(/^vonage_/, "")) ?? undefined;
       }
       return errorHint ? { ...r, errorHint } : r;
     });

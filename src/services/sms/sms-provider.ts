@@ -54,7 +54,7 @@ export interface ProviderRuntimeConfig {
   http?: GenericHttpConfig;
 }
 
-export type ProviderTypeId = "TWILIO" | "MOCK" | "HTTP";
+export type ProviderTypeId = "TWILIO" | "MOCK" | "HTTP" | "VONAGE";
 
 export type HttpAuthType =
   | "NONE"
@@ -163,6 +163,40 @@ export const PROVIDER_TYPES: Record<
         help: "Used for Basic auth. Reference as {{username}}.",
       },
       { key: "senderId", label: "Sender / CLI ({{from}} in templates)", required: false, secret: false },
+    ],
+  },
+  VONAGE: {
+    label: "Vonage",
+    description:
+      "Vonage (Nexmo) SMS API. Uses API key + secret auth; success/failure is read from the per-message status.",
+    fields: [
+      {
+        key: "apiKey",
+        label: "API key",
+        required: true,
+        secret: false,
+        help: "Your Vonage API key (dashboard.vonage.com).",
+      },
+      {
+        key: "apiSecret",
+        label: "API secret",
+        required: true,
+        secret: true,
+        help: "Stored encrypted. Never shown again after saving.",
+      },
+      {
+        key: "senderId",
+        label: "From (Vonage number or approved Sender ID)",
+        required: true,
+        secret: false,
+        help: "Must be a number rented from Vonage, or an alphanumeric sender approved for the destination.",
+      },
+      {
+        key: "apiBaseUrl",
+        label: "API base URL (optional override)",
+        required: false,
+        secret: false,
+      },
     ],
   },
 };
